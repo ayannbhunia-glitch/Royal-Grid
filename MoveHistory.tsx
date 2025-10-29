@@ -1,6 +1,6 @@
 import React from 'react';
 import { MoveRecord } from './lib/types';
-import { playerColors } from './GameBoard';
+import { playerColors } from './lib/constants';
 import { suitConfig } from './components/PlayingCard';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/Card';
 

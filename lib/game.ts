@@ -1,4 +1,4 @@
-import { Grid, Card, Player, Suit, Rank, Move, Cell } from './types';
+import { Grid, Card, Player, Suit, Rank, Move } from './types';
 
 export const SUITS: Suit[] = ['Spades', 'Hearts', 'Clubs', 'Diamonds'];
 export const RANKS: Rank[] = ['A', '2', '3', '4', '5', '6', '7', '8'];
@@ -8,7 +8,6 @@ const getCardValue = (rank: Rank): number => {
   return parseInt(rank, 10);
 };
 
-// Fisher-Yates shuffle
 const shuffle = <T>(array: T[]): T[] => {
   let currentIndex = array.length, randomIndex;
   while (currentIndex !== 0) {
@@ -19,68 +18,74 @@ const shuffle = <T>(array: T[]): T[] => {
   return array;
 };
 
-const createDeck = (gridSize: number): Card[] => {
-    const deck: Card[] = [];
-    const validRanks = RANKS.filter(r => getCardValue(r) <= gridSize);
-    SUITS.forEach(suit => {
-        validRanks.forEach(rank => {
-            deck.push({ suit, rank, value: getCardValue(rank) });
-        });
-    });
-    return shuffle(deck);
-}
-
-export const generateGrid = (size: number, playerCount: number): { grid: Grid; players: Player[] } => {
-  const grid: Grid = Array(size).fill(null).map(() => Array(size).fill(null));
-  let deck = createDeck(size);
-
-  // 1. Fill the entire grid with cards
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      if (deck.length === 0) {
-        deck = createDeck(size);
-      }
-      grid[r][c] = {
-        card: deck.pop()!,
-        isInvalid: false,
-      };
-    }
-  }
-
-  // 2. Find all 'A' cards to place players
-  const acePositions: { row: number, col: number }[] = [];
-  grid.forEach((row, r) => {
-    row.forEach((cell, c) => {
-      if (cell.card.rank === 'A') {
-        acePositions.push({ row: r, col: c });
-      }
+const createDeck = (size: number): Card[] => {
+  const deck: Card[] = [];
+  const validRanks = RANKS.filter(r => getCardValue(r) <= size);
+  SUITS.forEach(suit => {
+    validRanks.forEach(rank => {
+      deck.push({ suit, rank, value: getCardValue(rank) });
     });
   });
-
-  // 3. Place players on unique 'A' cards
-  const players: Player[] = [];
-  const shuffledAcePositions = shuffle(acePositions);
-
-  for (let i = 0; i < playerCount; i++) {
-    const pos = shuffledAcePositions[i];
-    if (!pos) {
-      // This case should not happen if size >= 4, but it's a good safeguard.
-      // We could try to regenerate the grid or throw an error.
-      // For now, let's throw an error.
-      throw new Error(`Not enough 'A' cards to place ${playerCount} players.`);
-    }
-    players.push({
-      id: i,
-      type: i === 0 ? 'human' : 'cpu',
-      position: pos,
-      isFinished: false,
-    });
-    grid[pos.row][pos.col].occupiedBy = i;
-  }
-  
-  return { grid, players };
+  return deck;
 };
 
+const dealGrid = (size: number): Grid => {
+    const grid: Grid = Array(size).fill(null).map(() => Array(size).fill(null));
+    let deck = createDeck(size);
+
+    while (deck.length < size * size) {
+        deck.push(...createDeck(size));
+    }
+    deck = shuffle(deck);
+
+    for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+            grid[r][c] = {
+                card: deck.pop()!,
+                isInvalid: false,
+            };
+        }
+    }
+    return grid;
+};
+
+const placePlayers = (grid: Grid, playerCount: number): { players: Player[]; updatedGrid: Grid } => {
+    const players: Player[] = [];
+    const updatedGrid = grid.map(row => row.map(cell => ({ ...cell })));
+
+    const acePositions: { row: number; col: number }[] = [];
+    updatedGrid.forEach((row, r) => {
+        row.forEach((cell, c) => {
+            if (cell.card.rank === 'A') {
+                acePositions.push({ row: r, col: c });
+            }
+        });
+    });
+
+    if (acePositions.length < playerCount) {
+        throw new Error(`Not enough 'A' cards to place ${playerCount} players. Try a larger grid.`);
+    }
+
+    const shuffledAcePositions = shuffle(acePositions);
+    for (let i = 0; i < playerCount; i++) {
+        const pos = shuffledAcePositions[i];
+        players.push({
+            id: i,
+            type: i === 0 ? 'human' : 'cpu',
+            position: pos,
+            isFinished: false,
+        });
+        updatedGrid[pos.row][pos.col].occupiedBy = i;
+    }
+
+    return { players, updatedGrid };
+};
+
+export const generateInitialGameState = (size: number, playerCount: number): { grid: Grid; players: Player[] } => {
+    const grid = dealGrid(size);
+    const { players, updatedGrid } = placePlayers(grid, playerCount);
+    return { grid: updatedGrid, players };
+};
 
 export const getPossibleMoves = (player: Player, grid: Grid): Move[] => {
     if (!player || player.isFinished) return [];
@@ -89,32 +94,23 @@ export const getPossibleMoves = (player: Player, grid: Grid): Move[] => {
     const { row: startRow, col: startCol } = player.position;
     const cardValue = grid[startRow][startCol].card.value;
 
-    const possibleMoves: Move[] = [];
-    const distances = new Map<string, number>(); // Stores shortest distance to each cell
-    const queue: [number, number, number][] = [[startRow, startCol, 0]]; // [row, col, distance]
-
+    const distances = new Map<string, number>();
+    const queue: [number, number, number][] = [[startRow, startCol, 0]];
     distances.set(`${startRow},${startCol}`, 0);
 
     let head = 0;
     while (head < queue.length) {
         const [r, c, dist] = queue[head++];
 
-        const directions = [
-            { dr: -1, dc: 0 }, // Up
-            { dr: 1, dc: 0 },  // Down
-            { dr: 0, dc: -1 }, // Left
-            { dr: 0, dc: 1 },  // Right
-        ];
+        const directions = [ { dr: -1, dc: 0 }, { dr: 1, dc: 0 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 } ];
 
         for (const { dr, dc } of directions) {
             const newRow = (r + dr + size) % size;
             const newCol = (c + dc + size) % size;
             const posKey = `${newRow},${newCol}`;
 
-            // If we haven't found a shorter path to this cell yet
             if (!distances.has(posKey)) {
                 const targetCell = grid[newRow][newCol];
-                // And the cell is valid to move into
                 if (!targetCell.isInvalid && typeof targetCell.occupiedBy !== 'number') {
                     distances.set(posKey, dist + 1);
                     queue.push([newRow, newCol, dist + 1]);
@@ -123,9 +119,7 @@ export const getPossibleMoves = (player: Player, grid: Grid): Move[] => {
         }
     }
 
-    // A cell is reachable in exactly K steps if the shortest path 'dist' to it
-    // is less than or equal to K, and the difference (K - dist) is an even number.
-    // This accounts for "back and forth" moves.
+    const possibleMoves: Move[] = [];
     for (const [posKey, dist] of distances.entries()) {
         if (dist > 0 && dist <= cardValue && (cardValue - dist) % 2 === 0) {
             const [row, col] = posKey.split(',').map(Number);

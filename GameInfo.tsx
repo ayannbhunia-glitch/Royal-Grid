@@ -1,6 +1,6 @@
 import React from 'react';
 import { Player, GameStatus } from './lib/types';
-import { playerColors } from './GameBoard';
+import { playerColors } from './lib/constants';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/Card';
 
 interface GameInfoProps {
@@ -9,19 +9,39 @@ interface GameInfoProps {
   gameStatus: GameStatus;
   turn: number;
   winner: Player | null;
+  isAiThinking: boolean;
+  playerCount: number;
 }
 
-const GameInfo: React.FC<GameInfoProps> = ({ players, currentPlayerId, gameStatus, turn, winner }) => {
+const GameInfo: React.FC<GameInfoProps> = ({ players, currentPlayerId, gameStatus, turn, winner, isAiThinking, playerCount }) => {
 
   const getStatusMessage = () => {
     if (gameStatus === 'gameOver') {
-        if (winner) {
-            return `Player ${winner.id + 1} Wins!`;
-        }
-        return 'Game Over - Draw!';
+      if (playerCount === 1) {
+        return `Game Over!`;
+      }
+      if (winner) {
+          return `Player ${winner.id + 1} Wins!`;
+      }
+      return 'Game Over - Draw!';
     }
+    
     const currentPlayer = players.find(p => p.id === currentPlayerId);
-    return `Turn ${turn}: Player ${currentPlayerId + 1}'s Move ${currentPlayer?.type === 'cpu' ? '(AI)' : ''}`;
+
+    if (isAiThinking && currentPlayer?.type === 'cpu') {
+      return (
+        <span className="animate-pulse">
+          Player {currentPlayerId + 1} (AI) is thinking...
+        </span>
+      );
+    }
+
+    if (playerCount === 1) {
+      return `Turn: ${turn}`;
+    }
+
+    const turnNumber = playerCount > 0 ? Math.floor((turn - 1) / playerCount) + 1 : 1;
+    return `Turn ${turnNumber}: Player ${currentPlayerId + 1}'s Move ${currentPlayer?.type === 'cpu' ? '(AI)' : ''}`;
   };
 
   return (
@@ -30,7 +50,7 @@ const GameInfo: React.FC<GameInfoProps> = ({ players, currentPlayerId, gameStatu
         <CardTitle>Game Status</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="text-lg font-semibold mb-2">{getStatusMessage()}</p>
+        <p className="text-lg font-semibold mb-2 h-7 flex items-center">{getStatusMessage()}</p>
         <div className="space-y-1">
           {players.map(player => (
             <div key={player.id} className="flex items-center justify-between text-sm">

@@ -11,7 +11,6 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    {/* fix: Wrap App with ToasterProvider so that components can use the useToast hook. */}
     <ToasterProvider>
       <App />
     </ToasterProvider>

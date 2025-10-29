@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Cell, Player, Suit } from '../lib/types';
 import { cn } from '../lib/utils';
-import { playerColors } from './GameBoard';
+import { playerColors } from '../lib/constants';
 
 interface PlayingCardProps {
   cell: Cell;

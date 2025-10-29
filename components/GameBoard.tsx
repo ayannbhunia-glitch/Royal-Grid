@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Grid, Player, Move, GameStatus, MoveRecord } from '../lib/types';
-import { generateGrid, getPossibleMoves } from '../lib/game';
+// fix: Correctly import generateInitialGameState instead of the non-existent generateGrid.
+import { generateInitialGameState, getPossibleMoves } from '../lib/game';
 import PlayingCard from './PlayingCard';
 import { useToast } from '../hooks/use-toast';
 import GameInfo from './GameInfo';
@@ -33,7 +34,8 @@ const GameBoard: React.FC<GameBoardProps> = ({ gridSize, playerCount, cardSize }
 
   const resetGame = useCallback(() => {
     try {
-      const { grid: newGrid, players: newPlayers } = generateGrid(gridSize, playerCount);
+      // fix: Use the correctly imported generateInitialGameState function.
+      const { grid: newGrid, players: newPlayers } = generateInitialGameState(gridSize, playerCount);
       setGrid(newGrid);
       setPlayers(newPlayers);
       setCurrentPlayerId(0);
