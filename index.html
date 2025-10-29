@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Royal Grid Domination</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,200..900;1,7..72,200..900&display=swap" rel="stylesheet">
+
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://aistudiocdn.com/react@^19.2.0",
+      "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+      "react/": "https://aistudiocdn.com/react@^19.2.0/",
+      "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
+      "clsx": "https://aistudiocdn.com/clsx@^2.1.1",
+      "tailwind-merge": "https://aistudiocdn.com/tailwind-merge@^3.3.1",
+      "framer-motion": "https://aistudiocdn.com/framer-motion@^12.23.24"
+    }
+  }
+  </script>
+  
+  <style>
+    :root {
+      /* Light theme variables */
+      --background: 0 0% 100%;
+      --foreground: 222.2 84% 4.9%;
+      --card: 0 0% 100%;
+      --card-foreground: 222.2 84% 4.9%;
+      --popover: 0 0% 100%;
+      --popover-foreground: 222.2 84% 4.9%;
+      --primary: 0 72.2% 50.6%;
+      --primary-foreground: 210 40% 98%;
+      --secondary: 210 40% 96.1%;
+      --secondary-foreground: 222.2 47.4% 11.2%;
+      --muted: 210 40% 96.1%;
+      --muted-foreground: 215.4 16.3% 46.9%;
+      --accent: 210 40% 96.1%;
+      --accent-foreground: 222.2 47.4% 11.2%;
+      --destructive: 0 84.2% 60.2%;
+      --destructive-foreground: 210 40% 98%;
+      --border: 214.3 31.8% 91.4%;
+      --input: 214.3 31.8% 91.4%;
+      --ring: 222.2 84% 4.9%;
+      --radius: 0.5rem;
+    }
+    .dark {
+      /* Dark theme variables */
+      --background: 224 71% 4%;
+      --foreground: 210 40% 98%;
+      --card: 224 71% 10%;
+      --card-foreground: 210 40% 98%;
+      --popover: 224 71% 4%;
+      --popover-foreground: 210 40% 98%;
+      --primary: 0 63% 31%; /* Red */
+      --primary-foreground: 210 40% 98%;
+      --secondary: 217 33% 17%;
+      --secondary-foreground: 210 40% 98%;
+      --muted: 217 33% 17%;
+      --muted-foreground: 215 20% 65%;
+      --accent: 190 95% 50%; /* Cyan */
+      --accent-foreground: 222.2 47.4% 11.2%;
+      --destructive: 0 63% 31%; /* Red */
+      --destructive-foreground: 210 40% 98%;
+      --border: 217 33% 17%;
+      --input: 217 33% 17%;
+      --ring: 190 95% 50%; /* Cyan */
+    }
+    body {
+        font-family: 'Literata', serif;
+    }
+    /* Simple scrollbar styling for dark theme */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: hsl(var(--secondary));
+    }
+    ::-webkit-scrollbar-thumb {
+      background: hsl(var(--border));
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: hsl(var(--ring));
+    }
+  </style>
+</head>
+<body class="dark bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

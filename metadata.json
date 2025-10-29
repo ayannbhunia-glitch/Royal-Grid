@@ -1,0 +1,5 @@
+{
+  "name": "Royal Grid Domination",
+  "description": "A strategic grid-based card game where players move their king based on card values to outmaneuver opponents. The last player who can make a move wins.",
+  "requestFramePermissions": []
+}

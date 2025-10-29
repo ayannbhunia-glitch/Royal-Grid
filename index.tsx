@@ -1,0 +1,19 @@
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import { ToasterProvider } from './hooks/use-toast';
+
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error("Could not find root element to mount to");
+}
+
+const root = ReactDOM.createRoot(rootElement);
+root.render(
+  <React.StrictMode>
+    {/* fix: Wrap App with ToasterProvider so that components can use the useToast hook. */}
+    <ToasterProvider>
+      <App />
+    </ToasterProvider>
+  </React.StrictMode>
+);
