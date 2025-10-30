@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
-import { Grid, Player, GameStatus, MoveRecord, Position } from '../lib/types';
-import { generateInitialGameState } from '../lib/game';
+import { Grid, Player, GameStatus, MoveRecord, Position, Rank } from '../lib/types';
+import { generateInitialGameState, RANKS } from '../lib/game';
 import { useToast } from './use-toast';
 
 export const useGameState = (gridSize: number, playerCount: number) => {
@@ -11,6 +11,7 @@ export const useGameState = (gridSize: number, playerCount: number) => {
   const [winner, setWinner] = useState<Player | null>(null);
   const [turn, setTurn] = useState(1);
   const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([]);
+  const [initialCardCounts, setInitialCardCounts] = useState<Record<Rank, number> | null>(null);
   const { toast } = useToast();
 
   const currentPlayer = useMemo(() => players.find(p => p.id === currentPlayerId), [players, currentPlayerId]);
@@ -19,6 +20,16 @@ export const useGameState = (gridSize: number, playerCount: number) => {
   const initializeGame = useCallback(() => {
     try {
       const { grid: newGrid, players: newPlayers } = generateInitialGameState(gridSize, playerCount);
+
+      const counts = {} as Record<Rank, number>;
+      RANKS.forEach(r => counts[r] = 0);
+      newGrid.forEach(row => {
+        row.forEach(cell => {
+          counts[cell.card.rank]++;
+        });
+      });
+      setInitialCardCounts(counts);
+
       setGrid(newGrid);
       setPlayers(newPlayers);
       setCurrentPlayerId(0);
@@ -100,6 +111,7 @@ export const useGameState = (gridSize: number, playerCount: number) => {
     turn,
     moveHistory,
     activePlayers,
+    initialCardCounts,
     initializeGame,
     performMove,
     advancePlayer,

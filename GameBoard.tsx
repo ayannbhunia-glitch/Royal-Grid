@@ -17,7 +17,7 @@ interface GameBoardProps {
 
 const GameBoard: React.FC<GameBoardProps> = ({ gridSize, playerCount, cardSize }) => {
   const gameState = useGameState(gridSize, playerCount);
-  const { grid, players, currentPlayer, gameStatus, winner, turn, moveHistory, initializeGame, performMove } = gameState;
+  const { grid, players, currentPlayer, gameStatus, winner, turn, moveHistory, initializeGame, performMove, initialCardCounts } = gameState;
   const { possibleMoves, isAiThinking } = useGameEffects(gameState, playerCount);
 
   useEffect(() => {
@@ -70,7 +70,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ gridSize, playerCount, cardSize }
           playerCount={playerCount}
         />
         <MoveHistory history={moveHistory} />
-        <CardCounter grid={grid} />
+        <CardCounter grid={grid} initialCounts={initialCardCounts} />
         <DebugInfo gameState={gameState} />
         {gameStatus === 'gameOver' && (
           <AnimatePresence>

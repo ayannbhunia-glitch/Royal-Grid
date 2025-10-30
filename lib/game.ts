@@ -34,36 +34,61 @@ export const generateInitialGameState = (size: number, playerCount: number): { g
         throw new Error("Game rules do not support more than 4 players.");
     }
 
-    const requiredCards = size * size;
     const grid: Grid = Array(size).fill(null).map(() => Array(size).fill(null));
-    const players: Player[] = [];
     
-    // 1. Reserve aces for players. We take one of each suit to ensure they are unique cards.
+    // 1. Determine the exact, most balanced set of cards for the entire board.
+    const totalCards = size * size;
+    const baseDeck = createDeck(size);
+    
+    const numFullDecks = Math.floor(totalCards / baseDeck.length);
+    const remainderCards = totalCards % baseDeck.length;
+
+    let idealPool: Card[] = [];
+    for (let i = 0; i < numFullDecks; i++) {
+        idealPool.push(...baseDeck);
+    }
+    if (remainderCards > 0) {
+        idealPool.push(...shuffle(baseDeck).slice(0, remainderCards));
+    }
+
+    // 2. Define which specific aces players will receive.
     const playerAces: Card[] = SUITS.slice(0, playerCount).map(suit => ({
         suit,
         rank: 'A',
         value: 1,
     }));
 
-    // 2. Create a pool of remaining cards.
-    const baseDeck = createDeck(size);
-    
-    // Remove the aces we already reserved from the base deck definition
-    const baseDeckWithoutReservedAces = baseDeck.filter(card => {
-        return !playerAces.some(pa => pa.suit === card.suit && pa.rank === card.rank);
+    // 3. Ensure the player aces are present in the ideal pool.
+    // This is a safety check; for most balanced distributions, they will be.
+    // If not, swap them in with a random card from the pool.
+    playerAces.forEach(playerAce => {
+        const aceInPool = idealPool.find(c => c.rank === playerAce.rank && c.suit === playerAce.suit);
+        if (!aceInPool) {
+            // Find a card in the pool that is NOT a required player ace and swap it.
+            const swappableIndex = idealPool.findIndex(poolCard => 
+                !playerAces.some(pa => pa.rank === poolCard.rank && pa.suit === poolCard.suit)
+            );
+            if (swappableIndex !== -1) {
+                idealPool[swappableIndex] = playerAce;
+            }
+        }
     });
 
-    let remainingCardsPool: Card[] = [];
-    if (baseDeckWithoutReservedAces.length > 0) {
-        while (remainingCardsPool.length < requiredCards - playerCount) {
-            remainingCardsPool.push(...baseDeckWithoutReservedAces);
+    // 4. Procedurally remove the player aces to create the final pool for the grid cells.
+    const cardsForGrid: Card[] = [];
+    const poolCopy = [...idealPool];
+    
+    playerAces.forEach(playerAce => {
+        const indexToRemove = poolCopy.findIndex(c => c.rank === playerAce.rank && c.suit === playerAce.suit);
+        if (indexToRemove > -1) {
+            poolCopy.splice(indexToRemove, 1);
         }
-    }
-    
-    // Shuffle and take the exact number of cards needed to fill the rest of the grid.
-    const cardsForGrid = shuffle(remainingCardsPool).slice(0, requiredCards - playerCount);
-    
-    // 3. Get all grid positions and shuffle them for random placement.
+    });
+    // What remains in poolCopy is for the grid.
+    const shuffledCardsForGrid = shuffle(poolCopy);
+
+
+    // 5. Get all grid positions and shuffle them for random placement.
     const allPositions: { row: number; col: number }[] = [];
     for (let r = 0; r < size; r++) {
         for (let c = 0; c < size; c++) {
@@ -72,7 +97,8 @@ export const generateInitialGameState = (size: number, playerCount: number): { g
     }
     const shuffledPositions = shuffle(allPositions);
 
-    // 4. Place players with their aces.
+    // 6. Place players with their aces.
+    const players: Player[] = [];
     for (let i = 0; i < playerCount; i++) {
         const pos = shuffledPositions.pop()!;
         players.push({
@@ -88,10 +114,10 @@ export const generateInitialGameState = (size: number, playerCount: number): { g
         };
     }
 
-    // 5. Fill the rest of the grid.
+    // 7. Fill the rest of the grid.
     shuffledPositions.forEach((pos, i) => {
         grid[pos.row][pos.col] = {
-            card: cardsForGrid[i],
+            card: shuffledCardsForGrid[i],
             isInvalid: false,
         };
     });
@@ -118,15 +144,18 @@ export const getPossibleMoves = (player: Player, grid: Grid): Move[] => {
         const directions = [ { dr: -1, dc: 0 }, { dr: 1, dc: 0 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 } ];
 
         for (const { dr, dc } of directions) {
-            const newRow = (r + dr + size) % size;
-            const newCol = (c + dc + size) % size;
-            const posKey = `${newRow},${newCol}`;
-
-            if (!distances.has(posKey)) {
-                const targetCell = grid[newRow][newCol];
-                if (!targetCell.isInvalid && typeof targetCell.occupiedBy !== 'number') {
-                    distances.set(posKey, dist + 1);
-                    queue.push([newRow, newCol, dist + 1]);
+            const newRow = r + dr;
+            const newCol = c + dc;
+            
+            // Ensure moves are within bounds, not wrapping around
+            if (newRow >= 0 && newRow < size && newCol >= 0 && newCol < size) {
+                const posKey = `${newRow},${newCol}`;
+                if (!distances.has(posKey)) {
+                    const targetCell = grid[newRow][newCol];
+                    if (!targetCell.isInvalid && typeof targetCell.occupiedBy !== 'number') {
+                        distances.set(posKey, dist + 1);
+                        queue.push([newRow, newCol, dist + 1]);
+                    }
                 }
             }
         }

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/Card';
 
 interface CardCounterProps {
   grid: Grid;
+  initialCounts: Record<Rank, number> | null;
 }
 
 // Helper to get card value, same as in game logic
@@ -13,7 +14,7 @@ const getCardValue = (rank: Rank): number => {
   return parseInt(rank, 10);
 };
 
-const CardCounter: React.FC<CardCounterProps> = ({ grid }) => {
+const CardCounter: React.FC<CardCounterProps> = ({ grid, initialCounts }) => {
   const counts = React.useMemo(() => {
     if (!grid || grid.length === 0) {
       // Return a structure that won't break the render logic
@@ -48,13 +49,13 @@ const CardCounter: React.FC<CardCounterProps> = ({ grid }) => {
         <CardTitle>Cards On Board</CardTitle>
       </CardHeader>
       <CardContent>
-        {counts.validRanks.length > 0 ? (
+        {counts.validRanks.length > 0 && initialCounts ? (
           <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-base">
             {counts.validRanks.map((rank) => (
               <div key={rank} className="flex justify-between items-baseline">
                 <span className="font-bold text-slate-300 w-4 text-center">{rank}</span>
                 <span className="text-slate-400 font-mono">
-                  {counts.current[rank] || 0} / 4
+                  {counts.current[rank] || 0} / {initialCounts[rank] || 0}
                 </span>
               </div>
             ))}
