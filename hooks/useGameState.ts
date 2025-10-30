@@ -33,6 +33,22 @@ export const useGameState = (gridSize: number, playerCount: number) => {
       setGrid(null);
     }
   }, [gridSize, playerCount, toast]);
+  
+  const advancePlayer = useCallback(() => {
+    setPlayers(currentPlayers => {
+        setCurrentPlayerId(prevId => {
+            if (currentPlayers.length === 0) return prevId;
+            const activePlayerIds = currentPlayers.filter(p => !p.isFinished).map(p => p.id);
+            if (activePlayerIds.length === 0) return prevId;
+
+            const currentIndexInActive = activePlayerIds.indexOf(prevId);
+            const nextIndexInActive = (currentIndexInActive + 1) % activePlayerIds.length;
+            
+            return activePlayerIds[nextIndexInActive];
+        });
+        return currentPlayers;
+    });
+  }, []);
 
   const performMove = useCallback((to: Position) => {
     if (gameStatus !== 'playing' || !grid || !currentPlayer) return;
@@ -52,36 +68,23 @@ export const useGameState = (gridSize: number, playerCount: number) => {
     setPlayers(newPlayers);
     setMoveHistory(prev => [...prev, { turn, player: currentPlayer, card, from, to }]);
     setTurn(t => t + 1);
-  }, [gameStatus, grid, currentPlayer, players, turn]);
+    
+    // Immediately advance to the next player, making the move and turn change an atomic operation.
+    advancePlayer();
 
-  const advancePlayer = useCallback(() => {
-    // Use a functional update for `setPlayers` to get the most recent `players` state.
-    // This prevents race conditions where this function might otherwise close over stale state.
-    setPlayers(currentPlayers => {
-        setCurrentPlayerId(prevId => {
-            if (currentPlayers.length === 0) return prevId;
-
-            // Start looking for the next active player from the next ID.
-            let nextId = (prevId + 1) % currentPlayers.length;
-            
-            // Add a guard to prevent an infinite loop if all players are finished.
-            let guard = 0;
-            while (currentPlayers[nextId]?.isFinished && guard < currentPlayers.length * 2) {
-                nextId = (nextId + 1) % currentPlayers.length;
-                guard++;
-            }
-
-            return nextId;
-        });
-        // We are only reading the state, so return it unchanged.
-        return currentPlayers;
-    });
-  }, []);
+  }, [gameStatus, grid, currentPlayer, players, turn, advancePlayer]);
 
   const markPlayerFinished = useCallback((playerId: number) => {
     toast({ title: `Player ${playerId + 1} has no more moves!` });
-    setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, isFinished: true } : p));
-  }, [toast]);
+    setPlayers(prev => {
+      const newPlayers = prev.map(p => p.id === playerId ? { ...p, isFinished: true } : p);
+      // If the currently active player just got finished, immediately advance.
+      if (currentPlayer?.id === playerId) {
+        advancePlayer();
+      }
+      return newPlayers;
+    });
+  }, [toast, currentPlayer, advancePlayer]);
   
   const endGame = useCallback((winnerPlayer: Player | null) => {
     setGameStatus('gameOver');

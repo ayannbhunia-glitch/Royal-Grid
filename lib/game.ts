@@ -29,63 +29,76 @@ const createDeck = (size: number): Card[] => {
   return deck;
 };
 
-const dealGrid = (size: number): Grid => {
+export const generateInitialGameState = (size: number, playerCount: number): { grid: Grid; players: Player[] } => {
+    if (playerCount > 4) {
+        throw new Error("Game rules do not support more than 4 players.");
+    }
+
+    const requiredCards = size * size;
     const grid: Grid = Array(size).fill(null).map(() => Array(size).fill(null));
-    let deck = createDeck(size);
-
-    while (deck.length < size * size) {
-        deck.push(...createDeck(size));
-    }
-    deck = shuffle(deck);
-
-    for (let r = 0; r < size; r++) {
-        for (let c = 0; c < size; c++) {
-            grid[r][c] = {
-                card: deck.pop()!,
-                isInvalid: false,
-            };
-        }
-    }
-    return grid;
-};
-
-const placePlayers = (grid: Grid, playerCount: number): { players: Player[]; updatedGrid: Grid } => {
     const players: Player[] = [];
-    const updatedGrid = grid.map(row => row.map(cell => ({ ...cell })));
+    
+    // 1. Reserve aces for players. We take one of each suit to ensure they are unique cards.
+    const playerAces: Card[] = SUITS.slice(0, playerCount).map(suit => ({
+        suit,
+        rank: 'A',
+        value: 1,
+    }));
 
-    const acePositions: { row: number; col: number }[] = [];
-    updatedGrid.forEach((row, r) => {
-        row.forEach((cell, c) => {
-            if (cell.card.rank === 'A') {
-                acePositions.push({ row: r, col: c });
-            }
-        });
+    // 2. Create a pool of remaining cards.
+    const baseDeck = createDeck(size);
+    
+    // Remove the aces we already reserved from the base deck definition
+    const baseDeckWithoutReservedAces = baseDeck.filter(card => {
+        return !playerAces.some(pa => pa.suit === card.suit && pa.rank === card.rank);
     });
 
-    if (acePositions.length < playerCount) {
-        throw new Error(`Not enough 'A' cards to place ${playerCount} players. Try a larger grid.`);
+    let remainingCardsPool: Card[] = [];
+    if (baseDeckWithoutReservedAces.length > 0) {
+        while (remainingCardsPool.length < requiredCards - playerCount) {
+            remainingCardsPool.push(...baseDeckWithoutReservedAces);
+        }
     }
+    
+    // Shuffle and take the exact number of cards needed to fill the rest of the grid.
+    const cardsForGrid = shuffle(remainingCardsPool).slice(0, requiredCards - playerCount);
+    
+    // 3. Get all grid positions and shuffle them for random placement.
+    const allPositions: { row: number; col: number }[] = [];
+    for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+            allPositions.push({ row: r, col: c });
+        }
+    }
+    const shuffledPositions = shuffle(allPositions);
 
-    const shuffledAcePositions = shuffle(acePositions);
+    // 4. Place players with their aces.
     for (let i = 0; i < playerCount; i++) {
-        const pos = shuffledAcePositions[i];
+        const pos = shuffledPositions.pop()!;
         players.push({
             id: i,
             type: i === 0 ? 'human' : 'cpu',
             position: pos,
             isFinished: false,
         });
-        updatedGrid[pos.row][pos.col].occupiedBy = i;
+        grid[pos.row][pos.col] = {
+            card: playerAces[i],
+            isInvalid: false,
+            occupiedBy: i,
+        };
     }
 
-    return { players, updatedGrid };
+    // 5. Fill the rest of the grid.
+    shuffledPositions.forEach((pos, i) => {
+        grid[pos.row][pos.col] = {
+            card: cardsForGrid[i],
+            isInvalid: false,
+        };
+    });
+
+    return { grid, players };
 };
 
-export const generateInitialGameState = (size: number, playerCount: number): { grid: Grid; players: Player[] } => {
-    const grid = dealGrid(size);
-    const { players, updatedGrid } = placePlayers(grid, playerCount);
-    return { grid: updatedGrid, players };
-};
 
 export const getPossibleMoves = (player: Player, grid: Grid): Move[] => {
     if (!player || player.isFinished) return [];

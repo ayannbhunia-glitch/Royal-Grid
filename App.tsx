@@ -1,8 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import GameBoard from './GameBoard';
 import GameControls from './GameControls';
-import { Card, CardContent } from './components/ui/Card';
-import { Button } from './components/ui/Button';
+import GameTester from './components/GameTester'; // Import the new tester component
 
 function App() {
   const [gridSize, setGridSize] = useState(4);
@@ -43,6 +42,7 @@ function App() {
             setPlayerCount={setPlayerCount}
             onNewGame={handleNewGame}
           />
+          <GameTester />
         </aside>
         <section className="flex-grow flex items-center justify-center">
           <GameBoard

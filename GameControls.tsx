@@ -20,7 +20,7 @@ const GameControls: React.FC<GameControlsProps> = ({
   onNewGame,
 }) => {
   return (
-    <div className="flex flex-col h-full space-y-4">
+    <div className="flex flex-col space-y-4">
       <Card>
         <CardHeader>
           <CardTitle>Game Settings</CardTitle>

@@ -78,8 +78,9 @@ const PlayingCard: React.FC<PlayingCardProps> = ({ cell, isKingHere, isPossibleM
       style={{
         width: `${cardSize}px`,
         height: `${cardSize * 1.4}px`,
-        ringColor: isKingHere ? playerColors[isKingHere.id] : undefined,
-      }}
+        // fix: Cast the style object to React.CSSProperties to allow using the '--tw-ring-color' custom property, which is not recognized by MotionStyle's default type.
+        '--tw-ring-color': isKingHere ? playerColors[isKingHere.id] : undefined,
+      } as React.CSSProperties}
       onClick={onClick}
     >
       {cardContent}
