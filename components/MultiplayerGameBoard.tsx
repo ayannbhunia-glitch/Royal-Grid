@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import PlayingCard from './PlayingCard';
 import GameInfo from '../GameInfo';
@@ -6,6 +6,7 @@ import MoveHistory from '../MoveHistory';
 import CardCounter from '../CardCounter';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 import { useMultiplayerGameState } from '../hooks/useMultiplayerGameState';
 import { useGameEffects } from '../hooks/useGameEffects';
 import type { Game } from '../lib/database.types';
@@ -34,6 +35,9 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
     playerCount 
   });
   
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [showCopySuccess, setShowCopySuccess] = useState(false);
+  
   const gameState = useMultiplayerGameState({ game, userId });
   const {
     grid,
@@ -58,6 +62,16 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
     return `${window.location.origin}/?share=${game.share_code}`;
   }, [game?.share_code]);
 
+  // Determine host and autostart for single-player games
+  const isHost = game.created_by === userId;
+  const autoStartRef = useRef(false);
+  useEffect(() => {
+    if (!isInitialized && (game.num_players || 2) === 1 && isHost && !autoStartRef.current) {
+      autoStartRef.current = true;
+      initializeGame();
+    }
+  }, [isInitialized, game.num_players, isHost, initializeGame]);
+
   console.log('[MultiplayerGameBoard] Game state:', {
     isInitialized,
     hasGrid: !!grid,
@@ -69,22 +83,26 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
   if (!isInitialized || !grid) {
     const gamePlayers = game.players as any[];
     const playersCount = Array.isArray(gamePlayers) ? gamePlayers.length : 0;
-    const needed = game.num_players || 2;
-    const minPlayers = 2;
-    const canStart = playersCount >= minPlayers;
-    const isCreator = game.created_by === userId;
+    const totalSlots = game.num_players || 2;
+    const botsCount = Math.max(0, totalSlots - playersCount);
+    const isSinglePlayer = totalSlots === 1;
+    const minPlayers = isSinglePlayer ? 1 : 2;
+    const canStart = isHost; // host can start anytime
 
     console.log('[MultiplayerGameBoard] Showing waiting room', {
       playersCount,
-      needed,
+      totalSlots,
+      botsCount,
       canStart,
-      isCreator,
+      isHost,
     });
 
     const handleCopy = async () => {
       if (!shareUrl) return;
       await navigator.clipboard.writeText(shareUrl);
       console.log('[MultiplayerGameBoard] Share link copied');
+      setShowCopySuccess(true);
+      setTimeout(() => setShowCopySuccess(false), 2000);
     };
 
     const handleStartGame = async () => {
@@ -97,15 +115,17 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
         <div className="bg-slate-800/50 p-8 rounded-xl max-w-md w-full text-center space-y-4">
           <h2 className="text-2xl font-bold text-white">Waiting Room</h2>
           <div className="text-4xl font-bold text-cyan-400">
-            {playersCount} / {needed}
+            {playersCount} / {totalSlots}
           </div>
           {/* Share code and link */}
           <div className="mt-2 space-y-2">
             <div className="text-sm opacity-80">Share Code</div>
             <div className="font-mono text-lg">{game.share_code || '—'}</div>
             <div className="mt-2 flex gap-2 items-center">
-              <Input readOnly value={shareUrl} />
-              <Button onClick={handleCopy}>Copy Link</Button>
+              <Input readOnly value={shareUrl} className="text-sm" />
+              <Button onClick={handleCopy} className="whitespace-nowrap">
+                {showCopySuccess ? '✓ Copied!' : 'Copy Link'}
+              </Button>
             </div>
           </div>
           
@@ -126,7 +146,7 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
             ))}
             
             {/* Empty slots */}
-            {Array.from({ length: needed - playersCount }).map((_, idx) => (
+            {Array.from({ length: Math.max(0, totalSlots - playersCount) }).map((_, idx) => (
               <div key={`empty-${idx}`} className="flex items-center gap-3 bg-slate-700/30 p-3 rounded-lg border-2 border-dashed border-slate-600">
                 <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center">
                   {playersCount + idx + 1}
@@ -138,22 +158,23 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
             ))}
           </div>
 
-          <p className="text-slate-300 text-sm">
-            {!canStart
-              ? `Need at least ${minPlayers} players to start`
-              : playersCount < needed
-              ? `${needed - playersCount} remaining slot${needed - playersCount > 1 ? 's' : ''} will be filled with bots`
-              : 'Ready to start!'}
-          </p>
+          {isHost ? (
+            <p className="text-slate-300 text-sm">
+              {botsCount > 0
+                ? `Start game with ${botsCount} bot${botsCount > 1 ? 's' : ''}`
+                : 'Ready to start!'}
+            </p>
+          ) : (
+            <p className="text-slate-300 text-sm">Waiting for host to start</p>
+          )}
 
           <div className="pt-4 space-y-3">
-            {isCreator ? (
+            {isHost ? (
               <Button 
-                onClick={handleStartGame} 
-                disabled={!canStart}
+                onClick={handleStartGame}
                 className="w-full"
               >
-                {!canStart ? `Need ${minPlayers - playersCount} More Player${minPlayers - playersCount > 1 ? 's' : ''}` : 'Start Game'}
+                {botsCount > 0 ? `Start game with ${botsCount} bot${botsCount > 1 ? 's' : ''}` : 'Start Game'}
               </Button>
             ) : (
               <div className="text-sm text-slate-400">
@@ -161,11 +182,22 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
               </div>
             )}
             
-            <Button variant="secondary" onClick={onLeaveGame} className="w-full">
+            <Button variant="secondary" onClick={() => setShowLeaveConfirm(true)} className="w-full">
               Leave Game
             </Button>
           </div>
         </div>
+        
+        <ConfirmDialog
+          open={showLeaveConfirm}
+          onOpenChange={setShowLeaveConfirm}
+          title="Leave Game?"
+          description="Are you sure you want to leave? The game will continue without you."
+          confirmText="Leave"
+          cancelText="Stay"
+          onConfirm={onLeaveGame}
+          variant="destructive"
+        />
       </div>
     );
   }
@@ -270,10 +302,23 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
           </motion.div>
         )}
 
-        <Button variant="secondary" onClick={onLeaveGame} className="mt-4">
+        <Button variant="secondary" onClick={() => setShowLeaveConfirm(true)} className="mt-4">
           Leave Game
         </Button>
       </div>
+      
+      <ConfirmDialog
+        open={showLeaveConfirm}
+        onOpenChange={setShowLeaveConfirm}
+        title="Leave Game?"
+        description={gameStatus === 'playing' 
+          ? "Are you sure you want to leave? You'll forfeit the game and it will continue without you."
+          : "Are you sure you want to leave this game?"}
+        confirmText="Leave"
+        cancelText="Stay"
+        onConfirm={onLeaveGame}
+        variant="destructive"
+      />
     </div>
   );
 };

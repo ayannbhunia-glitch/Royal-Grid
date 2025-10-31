@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Grid, Player, GameStatus, MoveRecord, Position, Rank } from '../lib/types';
 import { generateInitialGameState, RANKS } from '../lib/game';
 import { useToast } from './use-toast';
-import { submitMove, initializeGameState } from '../lib/move-service';
+import { submitMove, initializeGameState, endGameInDB } from '../lib/move-service';
 import type { Game } from '../lib/database.types';
 
 interface MultiplayerGameStateProps {
@@ -21,6 +21,9 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
   const [initialCardCounts, setInitialCardCounts] = useState<Record<Rank, number> | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const { toast } = useToast();
+  const prevHumanUidsRef = (globalThis as any)._rg_prevHumanUidsRef ??= { current: null as string[] | null };
+  const prevPlayersMapRef = (globalThis as any)._rg_prevPlayersMapRef ??= { current: new Map<string, string>() };
+  const hasAutoEndedRef = (globalThis as any)._rg_hasAutoEndedRef ??= { current: false };
 
   const currentPlayer = useMemo(() => players.find(p => p.id === currentPlayerId), [players, currentPlayerId]);
   const activePlayers = useMemo(() => players.filter(p => !p.isFinished), [players]);
@@ -51,6 +54,62 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
       setIsInitialized(false);
     }
   }, [game]);
+
+  // Reset tracking refs when switching games
+  useEffect(() => {
+    prevHumanUidsRef.current = null;
+    prevPlayersMapRef.current = new Map();
+    hasAutoEndedRef.current = false;
+  }, [game?.id]);
+
+  // Detect player leave and auto-end if only one human remains
+  useEffect(() => {
+    if (!game) return;
+    const dbPlayers = (game.players as any[]) || [];
+    const humanUids = dbPlayers.map(p => p.uid).filter(Boolean) as string[];
+
+    // Build current players map (uid -> name)
+    const currentMap = new Map<string, string>();
+    dbPlayers.forEach(p => {
+      if (p?.uid) currentMap.set(p.uid, p.name || 'A player');
+    });
+
+    // Initialize ref if first run
+    if (!prevHumanUidsRef.current) {
+      prevHumanUidsRef.current = humanUids;
+      return;
+    }
+
+    // Detect departures
+    const prev = prevHumanUidsRef.current;
+    const left = prev.filter(uid => !humanUids.includes(uid));
+    if (left.length > 0) {
+      // Find readable name for the first leaver using previous map
+      const leftUid = left[0];
+      const leaverName = prevPlayersMapRef.current.get(leftUid) || 'A player';
+      toast({ title: 'Player Left', description: `${leaverName} left the game.` });
+    }
+
+    prevHumanUidsRef.current = humanUids;
+    prevPlayersMapRef.current = currentMap;
+
+    // If only one human remains and game is active, end game and declare the remaining as winner
+    const isActive = game.status === 'active';
+    if (isActive && humanUids.length === 1 && !hasAutoEndedRef.current) {
+      const remainingUid = humanUids[0];
+      if (remainingUid && userId === remainingUid) {
+        hasAutoEndedRef.current = true;
+        (async () => {
+          try {
+            await endGameInDB(game.id, remainingUid);
+            toast({ title: 'You Win!', description: 'All other players left the game.' });
+          } catch (e) {
+            console.error('[useMultiplayerGameState] Auto-end failed', e);
+          }
+        })();
+      }
+    }
+  }, [game, userId, toast]);
 
   const initializeGame = useCallback(async () => {
     if (!game) return;

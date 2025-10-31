@@ -14,11 +14,11 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <AuthProvider>
-      <GameSessionProvider>
-        <ToasterProvider>
+      <ToasterProvider>
+        <GameSessionProvider>
           <App />
-        </ToasterProvider>
-      </GameSessionProvider>
+        </GameSessionProvider>
+      </ToasterProvider>
     </AuthProvider>
   </React.StrictMode>
 );
