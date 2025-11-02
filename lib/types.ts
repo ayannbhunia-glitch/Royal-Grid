@@ -12,6 +12,7 @@ export interface Cell {
   isInvalid: boolean;
   occupiedBy?: number; // Player ID
   justMovedTo?: boolean;
+  pathHighlight?: boolean; // For showing path preview on hover
 }
 
 export type Grid = Cell[][];

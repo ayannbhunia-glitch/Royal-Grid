@@ -1,6 +1,6 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Grid, Player, GameStatus, MoveRecord, Position, Rank } from '../lib/types';
-import { generateInitialGameState, RANKS } from '../lib/game';
+import { generateInitialGameState, RANKS, getPossibleMoves, getExactPath } from '../lib/game';
 import { useToast } from './use-toast';
 import { submitMove, initializeGameState, endGameInDB } from '../lib/move-service';
 import type { Game } from '../lib/database.types';
@@ -20,13 +20,17 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
   const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([]);
   const [initialCardCounts, setInitialCardCounts] = useState<Record<Rank, number> | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [hoveredMove, setHoveredMove] = useState<Position | null>(null);
+  const [isAnimating, setIsAnimating] = useState(false);
   const { toast } = useToast();
   const prevHumanUidsRef = (globalThis as any)._rg_prevHumanUidsRef ??= { current: null as string[] | null };
   const prevPlayersMapRef = (globalThis as any)._rg_prevPlayersMapRef ??= { current: new Map<string, string>() };
   const hasAutoEndedRef = (globalThis as any)._rg_hasAutoEndedRef ??= { current: false };
+  const initialHumanCountRef = (globalThis as any)._rg_initialHumanCountRef ??= { current: null as number | null };
 
   const currentPlayer = useMemo(() => players.find(p => p.id === currentPlayerId), [players, currentPlayerId]);
   const activePlayers = useMemo(() => players.filter(p => !p.isFinished), [players]);
+  const animatingRef = useRef(false);
 
   // Sync state from DB game object
   useEffect(() => {
@@ -60,6 +64,7 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
     prevHumanUidsRef.current = null;
     prevPlayersMapRef.current = new Map();
     hasAutoEndedRef.current = false;
+    initialHumanCountRef.current = null;
   }, [game?.id]);
 
   // Detect player leave and auto-end if only one human remains
@@ -74,9 +79,12 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
       if (p?.uid) currentMap.set(p.uid, p.name || 'A player');
     });
 
-    // Initialize ref if first run
+    // Initialize refs if first run
     if (!prevHumanUidsRef.current) {
       prevHumanUidsRef.current = humanUids;
+      if (initialHumanCountRef.current == null) {
+        initialHumanCountRef.current = humanUids.length;
+      }
       return;
     }
 
@@ -94,8 +102,10 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
     prevPlayersMapRef.current = currentMap;
 
     // If only one human remains and game is active, end game and declare the remaining as winner
+    // BUT only if the game originally started with more than one human player.
     const isActive = game.status === 'active';
-    if (isActive && humanUids.length === 1 && !hasAutoEndedRef.current) {
+    const startedWithMultipleHumans = (initialHumanCountRef.current ?? humanUids.length) > 1;
+    if (isActive && startedWithMultipleHumans && humanUids.length === 1 && !hasAutoEndedRef.current) {
       const remainingUid = humanUids[0];
       if (remainingUid && userId === remainingUid) {
         hasAutoEndedRef.current = true;
@@ -120,14 +130,32 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
       const gamePlayers = game.players as any[];
       const humanPlayersCount = Array.isArray(gamePlayers) ? gamePlayers.length : 0;
       
-      // Generate game state with total players (including bots)
-      const { grid: newGrid, players: newPlayers } = generateInitialGameState(gridSize, totalPlayers);
-
-      // Mark bot players (players beyond human count)
-      const playersWithTypes = newPlayers.map((player, idx) => ({
-        ...player,
-        type: (idx < humanPlayersCount ? 'human' : 'cpu') as 'human' | 'cpu',
-      }));
+      // Regenerate until the first player has at least one possible move (avoid instant-dead starts)
+      let newGrid: Grid | null = null;
+      let playersWithTypes: Player[] = [] as any;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const { grid: g, players: p } = generateInitialGameState(gridSize, totalPlayers);
+        const typed = p.map((player, idx) => ({
+          ...player,
+          type: (idx < humanPlayersCount ? 'human' : 'cpu') as 'human' | 'cpu',
+        }));
+        const first = typed[0];
+        const moves = getPossibleMoves(first, g as any);
+        if (moves.length > 0) {
+          newGrid = g as any;
+          playersWithTypes = typed as any;
+          break;
+        }
+      }
+      if (!newGrid) {
+        // Fallback to a single generation if all attempts failed
+        const { grid: g, players: p } = generateInitialGameState(gridSize, totalPlayers);
+        newGrid = g as any;
+        playersWithTypes = p.map((player, idx) => ({
+          ...player,
+          type: (idx < humanPlayersCount ? 'human' : 'cpu') as 'human' | 'cpu',
+        })) as any;
+      }
 
       const counts = {} as Record<Rank, number>;
       RANKS.forEach(r => counts[r] = 0);
@@ -192,20 +220,60 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
 
   const performMove = useCallback(async (to: Position) => {
     if (gameStatus !== 'playing' || !grid || !currentPlayer || !game) return;
+    if (animatingRef.current) return;
+    animatingRef.current = true;
+    setIsAnimating(true);
 
     const from = currentPlayer.position;
     const card = grid[from.row][from.col].card;
 
-    const newGrid = grid.map(r => r.map(c => ({ ...c, justMovedTo: false })));
-    newGrid[from.row][from.col].occupiedBy = undefined;
-    newGrid[from.row][from.col].isInvalid = true;
-    newGrid[to.row][to.col].occupiedBy = currentPlayer.id;
-    newGrid[to.row][to.col].justMovedTo = true;
+    // Compute exact path to animate (excluding start)
+    const path = getExactPath(grid, from, to, card.value);
 
-    const newPlayers = players.map(p => p.id === currentPlayer.id ? { ...p, position: to } : p);
+    // Clear hover highlights
+    setHoveredMove(null);
 
-    // Calculate next player
-    const activePlayerIds = newPlayers.filter(p => !p.isFinished).map(p => p.id);
+    // Working copies
+    let workingGrid = grid.map(r => r.map(c => ({ ...c, justMovedTo: false, pathHighlight: false })));
+    let workingPlayers = [...players];
+
+    // Mark starting cell invalid and clear occupancy
+    workingGrid[from.row][from.col].isInvalid = true;
+    workingGrid[from.row][from.col].occupiedBy = undefined;
+
+    // Animate through each step
+    for (let i = 0; i < path.length; i++) {
+      const step = path[i];
+      const prevStep = i === 0 ? from : path[i - 1];
+      
+      // Clear previous position
+      if (workingGrid[prevStep.row] && workingGrid[prevStep.row][prevStep.col]) {
+        workingGrid[prevStep.row][prevStep.col].occupiedBy = undefined;
+      }
+      
+      // Move to new position
+      workingGrid[step.row][step.col].occupiedBy = currentPlayer.id;
+      
+      // Update player position
+      workingPlayers = workingPlayers.map(p => 
+        p.id === currentPlayer.id ? { ...p, position: step } : p
+      );
+      
+      // Force new grid reference
+      const newGrid = workingGrid.map(r => r.map(c => ({ ...c })));
+      setGrid(newGrid);
+      setPlayers([...workingPlayers]);
+      
+      // Wait between steps (250ms)
+      await new Promise(res => setTimeout(res, 250));
+      workingGrid = newGrid;
+    }
+
+    // Finalize destination highlight
+    workingGrid[to.row][to.col].justMovedTo = true;
+
+    // Determine next player
+    const activePlayerIds = workingPlayers.filter(p => !p.isFinished).map(p => p.id);
     const currentIndexInActive = activePlayerIds.indexOf(currentPlayer.id);
     const nextIndexInActive = (currentIndexInActive + 1) % activePlayerIds.length;
     const nextPlayerId = activePlayerIds[nextIndexInActive];
@@ -214,17 +282,18 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
     const newTurn = turn + 1;
 
     const newState = {
-      board: newGrid,
-      players: newPlayers,
+      board: workingGrid,
+      players: workingPlayers,
       turn: newTurn,
       currentPlayer: nextPlayerId,
       history: newMoveHistory,
       lastMoveAt: new Date().toISOString(),
     };
 
-    // Optimistic update
-    setGrid(newGrid);
-    setPlayers(newPlayers);
+    // Optimistic final state
+    const finalGrid = workingGrid.map(r => r.map(c => ({ ...c })));
+    setGrid(finalGrid);
+    setPlayers([...workingPlayers]);
     setMoveHistory(newMoveHistory);
     setTurn(newTurn);
     setCurrentPlayerId(nextPlayerId);
@@ -238,6 +307,9 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
     } catch (error) {
       console.error('Failed to submit move:', error);
       toast({ title: "Move Failed", description: "Could not sync move to server", variant: 'destructive' });
+    } finally {
+      animatingRef.current = false;
+      setIsAnimating(false);
     }
   }, [gameStatus, grid, currentPlayer, players, turn, moveHistory, game, toast]);
 
@@ -281,6 +353,9 @@ export const useMultiplayerGameState = ({ game, userId }: MultiplayerGameStatePr
     initialCardCounts,
     isInitialized,
     canMove,
+    hoveredMove,
+    setHoveredMove,
+    isAnimating,
     initializeGame,
     performMove,
     advancePlayer,

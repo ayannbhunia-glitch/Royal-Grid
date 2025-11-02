@@ -1,4 +1,4 @@
-import { Grid, Card, Player, Suit, Rank, Move } from './types';
+import { Grid, Card, Player, Suit, Rank, Move, Position } from './types';
 
 export const SUITS: Suit[] = ['Spades', 'Hearts', 'Clubs', 'Diamonds'];
 export const RANKS: Rank[] = ['A', '2', '3', '4', '5', '6', '7', '8'];
@@ -6,6 +6,74 @@ export const RANKS: Rank[] = ['A', '2', '3', '4', '5', '6', '7', '8'];
 const getCardValue = (rank: Rank): number => {
   if (rank === 'A') return 1;
   return parseInt(rank, 10);
+};
+
+// Find one exact path from 'from' to 'to' with exactly 'k' steps, respecting rules:
+// - Wrap-around edges
+// - Cannot pass through invalid cells
+// - Can pass through occupied cells
+// - Cannot land on occupied cell
+export const getExactPath = (grid: Grid, from: { row: number; col: number }, to: { row: number; col: number }, k: number): Position[] => {
+  const size = grid.length;
+  const visited: Set<string> = new Set();
+  const path: Position[] = [];
+  const pathVisited: Set<string> = new Set(); // prevent revisiting cells within the same path
+
+  const key = (r: number, c: number, rem: number) => `${r},${c},${rem}`;
+  const pkey = (r: number, c: number) => `${r},${c}`;
+  const norm = (v: number) => ((v % size) + size) % size;
+
+  const dfs = (r: number, c: number, rem: number): boolean => {
+    // Wrap
+    r = norm(r);
+    c = norm(c);
+
+    // Cannot stay in the same cell (except at start with full steps)
+    if (r === from.row && c === from.col && rem < k) return false;
+
+    // Do not revisit any cell already in current path (prevents bounce/loop)
+    const pk = pkey(r, c);
+    if (pathVisited.has(pk)) return false;
+
+    // Block invalid cells
+    if (grid[r][c].isInvalid) return false;
+
+    // Treat occupied cells as blocked, except the starting cell
+    const isStart = r === from.row && c === from.col;
+    if (!isStart && typeof grid[r][c].occupiedBy === 'number') return false;
+
+    const kstr = key(r, c, rem);
+    if (visited.has(kstr)) return false;
+    visited.add(kstr);
+
+    pathVisited.add(pk);
+    path.push({ row: r, col: c });
+
+    if (rem === 0) {
+      // Must be at destination and not occupied
+      const ok = r === to.row && c === to.col && typeof grid[r][c].occupiedBy !== 'number';
+      if (!ok) {
+        path.pop();
+        pathVisited.delete(pk);
+      }
+      return ok;
+    }
+
+    // Explore 4 directions
+    if (dfs(r - 1, c, rem - 1)) return true;
+    if (dfs(r + 1, c, rem - 1)) return true;
+    if (dfs(r, c - 1, rem - 1)) return true;
+    if (dfs(r, c + 1, rem - 1)) return true;
+
+    path.pop();
+    pathVisited.delete(pk);
+    return false;
+  };
+
+  const found = dfs(from.row, from.col, k);
+  if (!found) return [];
+  // path includes starting position; return only the intermediate steps excluding the start
+  return path.slice(1);
 };
 
 const shuffle = <T>(array: T[]): T[] => {
@@ -133,41 +201,66 @@ export const getPossibleMoves = (player: Player, grid: Grid): Move[] => {
     const { row: startRow, col: startCol } = player.position;
     const cardValue = grid[startRow][startCol].card.value;
 
-    const distances = new Map<string, number>();
-    const queue: [number, number, number][] = [[startRow, startCol, 0]];
-    distances.set(`${startRow},${startCol}`, 0);
+    // 2D array where each cell contains a Set of remaining distances already explored from that cell
+    const validMovesBoard: Set<number>[][] = Array(size).fill(null).map(() => 
+        Array(size).fill(null).map(() => new Set<number>())
+    );
+    
+    const validMoves: Move[] = [];
 
-    let head = 0;
-    while (head < queue.length) {
-        const [r, c, dist] = queue[head++];
+    // DFS function: explores from (i, j) with k steps remaining
+    const dfs = (i: number, j: number, k: number, seen: Set<string>) => {
+        // Base case: no more steps
+        if (k < 0) return;
 
-        const directions = [ { dr: -1, dc: 0 }, { dr: 1, dc: 0 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 } ];
+        // Wrap around edges (toroidal grid)
+        let row = i;
+        let col = j;
+        if (row < 0 || row >= size) row = ((row % size) + size) % size;
+        if (col < 0 || col >= size) col = ((col % size) + size) % size;
 
-        for (const { dr, dc } of directions) {
-            const newRow = r + dr;
-            const newCol = c + dc;
-            
-            // Ensure moves are within bounds, not wrapping around
-            if (newRow >= 0 && newRow < size && newCol >= 0 && newCol < size) {
-                const posKey = `${newRow},${newCol}`;
-                if (!distances.has(posKey)) {
-                    const targetCell = grid[newRow][newCol];
-                    if (!targetCell.isInvalid && typeof targetCell.occupiedBy !== 'number') {
-                        distances.set(posKey, dist + 1);
-                        queue.push([newRow, newCol, dist + 1]);
-                    }
-                }
+        // Check if this cell is active (not invalid/touched) and not occupied (cannot pass through players)
+        const cell = grid[row][col];
+        const isStartCell = row === startRow && col === startCol;
+        // Do not allow revisiting the start cell during this move
+        if (isStartCell && k < cardValue) return;
+        // Prevent revisiting any cell in the same path
+        const pk = `${row},${col}`;
+        if (seen.has(pk)) return;
+        if (cell.isInvalid) return;
+        if (!isStartCell && typeof cell.occupiedBy === 'number') return;
+
+        // Check if we've already explored this cell with this remaining distance
+        if (validMovesBoard[row][col].has(k)) return;
+
+        // Mark this (position, remaining_distance) as explored
+        validMovesBoard[row][col].add(k);
+
+        // Mark this cell as part of current path
+        seen.add(pk);
+
+        // If we've used all steps (k == 0), this is a valid destination
+        if (k === 0) {
+            // Only add if not occupied by another player
+            if (typeof cell.occupiedBy !== 'number') {
+                validMoves.push({ row, col });
             }
+            seen.delete(pk);
+            return;
         }
-    }
 
-    const possibleMoves: Move[] = [];
-    for (const [posKey, dist] of distances.entries()) {
-        if (dist > 0 && dist <= cardValue && (cardValue - dist) % 2 === 0) {
-            const [row, col] = posKey.split(',').map(Number);
-            possibleMoves.push({ row, col });
-        }
-    }
+        // Explore all 4 directions with one less step remaining
+        dfs(row - 1, col, k - 1, seen); // up
+        dfs(row + 1, col, k - 1, seen); // down
+        dfs(row, col - 1, k - 1, seen); // left
+        dfs(row, col + 1, k - 1, seen); // right
 
-    return possibleMoves;
+        // Backtrack for other paths
+        seen.delete(pk);
+    };
+
+    // Start DFS from current position with cardValue steps
+    dfs(startRow, startCol, cardValue, new Set<string>());
+
+    return validMoves;
 };

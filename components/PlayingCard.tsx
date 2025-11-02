@@ -9,6 +9,8 @@ interface PlayingCardProps {
   isKingHere?: Player;
   isPossibleMove: boolean;
   onClick: () => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
   cardSize: number;
 }
 
@@ -35,7 +37,7 @@ const BotIcon = ({ color }: { color: string }) => (
 );
 
 
-const PlayingCard: React.FC<PlayingCardProps> = ({ cell, isKingHere, isPossibleMove, onClick, cardSize }) => {
+const PlayingCard: React.FC<PlayingCardProps> = ({ cell, isKingHere, isPossibleMove, onClick, onMouseEnter, onMouseLeave, cardSize }) => {
   if (!cell) return null;
 
   const { card, isInvalid, justMovedTo } = cell;
@@ -44,44 +46,79 @@ const PlayingCard: React.FC<PlayingCardProps> = ({ cell, isKingHere, isPossibleM
 
   const cardContent = (
     <>
-      <div className={cn("absolute top-1 left-2", config.color)} style={{ fontSize: `${cardSize * 0.2}px`}}>
-        {isKingHere ? <span className="font-bold">{rank}</span> : config.symbol}
-      </div>
-      
-      {!isKingHere && (
-        <div className={cn("absolute font-bold", config.color)} style={{ fontSize: `${cardSize * 0.5}px` }}>{rank}</div>
+      {!isInvalid ? (
+        <>
+          <div className={cn("absolute top-1 left-2", config.color)} style={{ fontSize: `${cardSize * 0.2}px`}}>
+            {isKingHere ? <span className="font-bold">{rank}</span> : config.symbol}
+          </div>
+          {!isKingHere && (
+            <div className={cn("absolute font-bold", config.color)} style={{ fontSize: `${cardSize * 0.5}px` }}>{rank}</div>
+          )}
+          <div className={cn("absolute bottom-1 right-2 transform rotate-180", config.color)} style={{ fontSize: `${cardSize * 0.2}px`}}>
+            {isKingHere ? <span className="font-bold">{rank}</span> : config.symbol}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Invalid cells: swap number and suit positions */}
+          <div className={cn("absolute top-1 left-2", config.color)} style={{ fontSize: `${cardSize * 0.22}px`}}>
+            {rank}
+          </div>
+          {!isKingHere && (
+            <div className={cn("absolute font-black", config.color)} style={{ fontSize: `${cardSize * 0.5}px` }}>{config.symbol}</div>
+          )}
+          <div className={cn("absolute bottom-1 right-2 transform rotate-180", config.color)} style={{ fontSize: `${cardSize * 0.22}px`}}>
+            {rank}
+          </div>
+        </>
       )}
-      
-      <div className={cn("absolute bottom-1 right-2 transform rotate-180", config.color)} style={{ fontSize: `${cardSize * 0.2}px`}}>
-        {isKingHere ? <span className="font-bold">{rank}</span> : config.symbol}
-      </div>
     </>
   );
 
   const kingOverlay = isKingHere && (
-    <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg">
-      {isKingHere.type === 'human' ? <CrownIcon color={playerColors[isKingHere.id]} /> : <BotIcon color={playerColors[isKingHere.id]} />}
-    </div>
+    <motion.div
+      layoutId={`king-${isKingHere.id}`}
+      className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg"
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+    >
+      {isKingHere.type === 'human' ? (
+        <CrownIcon color={playerColors[isKingHere.id]} />
+      ) : (
+        <BotIcon color={playerColors[isKingHere.id]} />
+      )}
+    </motion.div>
   );
 
   return (
     <motion.div
-      animate={justMovedTo ? { scale: [1, 1.15, 1] } : { scale: 1 }}
-      transition={{ duration: 0.3 }}
+      layout
+      animate={justMovedTo 
+        ? { 
+            scale: [1, 1.12, 1.06, 1],
+            filter: [
+              'drop-shadow(0 0 0px rgba(34,211,238,0))',
+              'drop-shadow(0 0 18px rgba(34,211,238,0.7))',
+              'drop-shadow(0 0 8px rgba(34,211,238,0.4))',
+              'drop-shadow(0 0 0px rgba(34,211,238,0))'
+            ]
+          } 
+        : { scale: 1, filter: 'none' }}
+      transition={{ duration: 0.9, times: [0, 0.4, 0.75, 1] }}
       className={cn(
         "relative rounded-lg border-2 flex items-center justify-center transition-all duration-200 shadow-lg select-none",
         'bg-[hsl(var(--card))] border-[hsl(var(--border))]',
-        isInvalid && 'opacity-50 grayscale contrast-50',
-        isPossibleMove && 'ring-4 ring-offset-2 ring-offset-slate-900 ring-cyan-400 cursor-pointer hover:scale-105',
-        isKingHere && `ring-4 ring-offset-2 ring-offset-slate-900`
+        isInvalid && 'opacity-30 grayscale brightness-40 contrast-125',
+        isPossibleMove && 'z-10 ring-4 ring-offset-2 ring-offset-[hsl(var(--background))] ring-emerald-400 cursor-pointer hover:scale-105 outline outline-2 outline-emerald-400/50 bg-emerald-500/10',
+        isKingHere && `ring-4 ring-offset-2 ring-offset-[hsl(var(--background))]`
       )}
       style={{
         width: `${cardSize}px`,
         height: `${cardSize * 1.4}px`,
-        // fix: Cast the style object to React.CSSProperties to allow using the '--tw-ring-color' custom property, which is not recognized by MotionStyle's default type.
         '--tw-ring-color': isKingHere ? playerColors[isKingHere.id] : undefined,
       } as React.CSSProperties}
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       {cardContent}
       {kingOverlay}

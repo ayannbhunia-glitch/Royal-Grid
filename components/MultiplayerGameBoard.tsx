@@ -9,6 +9,7 @@ import { Input } from './ui/Input';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { useMultiplayerGameState } from '../hooks/useMultiplayerGameState';
 import { useGameEffects } from '../hooks/useGameEffects';
+import { getExactPath } from '../lib/game';
 import type { Game } from '../lib/database.types';
 
 interface MultiplayerGameBoardProps {
@@ -36,6 +37,7 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
   });
   
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [showCopySuccess, setShowCopySuccess] = useState(false);
   
   const gameState = useMultiplayerGameState({ game, userId });
@@ -52,9 +54,19 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
     initialCardCounts,
     isInitialized,
     canMove,
+    hoveredMove,
+    setHoveredMove,
+    isAnimating,
   } = gameState;
 
   const { possibleMoves, isAiThinking } = useGameEffects(gameState, playerCount);
+
+  // Compute path for arrow trail when hovering
+  const hoveredPath = useMemo(() => {
+    if (!hoveredMove || !grid || !currentPlayer || isAnimating) return [];
+    const card = grid[currentPlayer.position.row][currentPlayer.position.col].card;
+    return getExactPath(grid, currentPlayer.position, hoveredMove, card.value);
+  }, [hoveredMove, grid, currentPlayer, isAnimating]);
 
   // Compute share URL at top-level to avoid conditional hooks
   const shareUrl = useMemo(() => {
@@ -226,7 +238,7 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
 
       {/* Game Grid */}
       <div
-        className="grid gap-2"
+        className="relative grid gap-2"
         style={{
           gridTemplateColumns: `repeat(${gridSize}, ${cardSize}px)`,
           gridTemplateRows: `repeat(${gridSize}, ${cardSize * 1.4}px)`,
@@ -242,17 +254,103 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
                 key={`${r}-${c}`}
                 cell={cell}
                 isKingHere={kingHere}
-                isPossibleMove={isPossible && canMove}
+                isPossibleMove={isPossible && canMove && !isAnimating}
                 onClick={() => {
-                  if (isPossible && canMove && !isAiThinking) {
+                  if (isPossible && canMove && !isAiThinking && !isAnimating) {
                     performMove({ row: r, col: c });
                   }
                 }}
+                onMouseEnter={() => isPossible && canMove && !isAnimating && setHoveredMove({ row: r, col: c })}
+                onMouseLeave={() => setHoveredMove(null)}
                 cardSize={cardSize}
               />
             );
           })
         )}
+        {/* Arrow trail overlay */}
+        {hoveredPath.map((pos, idx) => {
+          const nextPos = hoveredPath[idx + 1];
+          if (!nextPos) return null;
+          
+          const dr = nextPos.row - pos.row;
+          const dc = nextPos.col - pos.col;
+          
+          // Handle wrap-around
+          const wrappedDr = Math.abs(dr) > 1 ? -Math.sign(dr) : dr;
+          const wrappedDc = Math.abs(dc) > 1 ? -Math.sign(dc) : dc;
+          
+          let rotation = 0;
+          if (wrappedDr === -1) rotation = 0;   // up
+          if (wrappedDr === 1) rotation = 180;  // down
+          if (wrappedDc === 1) rotation = 90;   // right
+          if (wrappedDc === -1) rotation = 270; // left
+          
+          return (
+            <div
+              key={`arrow-${idx}`}
+              className="pointer-events-none absolute z-20"
+              style={{
+                left: `${pos.col * (cardSize + 8) + cardSize / 2}px`,
+                top: `${pos.row * (cardSize * 1.4 + 8) + (cardSize * 1.4) / 2}px`,
+                transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+              }}
+            >
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 4v16M5 11l7-7 7 7"/>
+              </svg>
+            </div>
+          );
+        })}
+
+        {/* Hook arrows for turns */}
+        {hoveredPath.map((pos, idx) => {
+          const prev = hoveredPath[idx - 1];
+          const curr = hoveredPath[idx];
+          const next = hoveredPath[idx + 1];
+          if (!prev || !next) return null;
+          // Compute wrapped directions
+          const d1rRaw = curr.row - prev.row, d1cRaw = curr.col - prev.col;
+          const d2rRaw = next.row - curr.row, d2cRaw = next.col - curr.col;
+          const d1r = Math.abs(d1rRaw) > 1 ? -Math.sign(d1rRaw) : d1rRaw;
+          const d1c = Math.abs(d1cRaw) > 1 ? -Math.sign(d1cRaw) : d1cRaw;
+          const d2r = Math.abs(d2rRaw) > 1 ? -Math.sign(d2rRaw) : d2rRaw;
+          const d2c = Math.abs(d2cRaw) > 1 ? -Math.sign(d2cRaw) : d2cRaw;
+          const dir = (dr:number, dc:number) => dr === -1 ? 'U' : dr === 1 ? 'D' : dc === -1 ? 'L' : 'R';
+          const a = dir(d1r, d1c);
+          const b = dir(d2r, d2c);
+          if (a === b) return null; // straight line
+
+          // Determine rotation for a canonical curve (U->R)
+          const rotMap: Record<string, number> = {
+            'U-R': 0,
+            'R-D': 90,
+            'D-L': 180,
+            'L-U': 270,
+            'R-U': 270,
+            'D-R': 0,
+            'L-D': 90,
+            'U-L': 180,
+          };
+          const rot = rotMap[`${a}-${b}`] ?? 0;
+
+          return (
+            <div
+              key={`hook-${idx}`}
+              className="pointer-events-none absolute z-20"
+              style={{
+                left: `${curr.col * (cardSize + 8) + cardSize / 2}px`,
+                top: `${curr.row * (cardSize * 1.4 + 8) + (cardSize * 1.4) / 2}px`,
+                transform: `translate(-50%, -50%) rotate(${rot}deg)`,
+              }}
+            >
+              {/* Quarter-circle hook with arrowhead */}
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 20 C4 10 10 4 20 4"/>
+                <path d="M18 6 L20 4 L22 6"/>
+              </svg>
+            </div>
+          );
+        })}
       </div>
 
       {/* Sidebar */}
@@ -278,6 +376,7 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
           winner={winner}
           isAiThinking={isAiThinking}
           playerCount={playerCount}
+          gridSize={gridSize}
         />
 
         {initialCardCounts && <CardCounter grid={grid} initialCounts={initialCardCounts} />}
@@ -291,7 +390,9 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
             className="bg-gradient-to-r from-purple-600 to-pink-600 p-6 rounded-xl text-center"
           >
             <h2 className="text-2xl font-bold text-white mb-2">Game Over!</h2>
-            {winner ? (
+            {playerCount === 1 ? (
+              <p className="text-white">Total Turns: {turn - 1}</p>
+            ) : winner ? (
               <p className="text-white">Player {winner.id + 1} wins!</p>
             ) : (
               <p className="text-white">It's a draw!</p>
@@ -302,11 +403,46 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
           </motion.div>
         )}
 
-        <Button variant="secondary" onClick={() => setShowLeaveConfirm(true)} className="mt-4">
-          Leave Game
-        </Button>
+        <div className="flex gap-3 mt-4">
+          <Button 
+            variant="outline" 
+            onClick={() => {
+              if (playerCount === 1) {
+                // Solo mode: restart immediately
+                initializeGame();
+              } else {
+                // Multiplayer: show confirmation
+                setShowRestartConfirm(true);
+              }
+            }}
+            className="flex-1"
+          >
+            🔄 Restart
+          </Button>
+          <Button 
+            variant="secondary" 
+            onClick={() => setShowLeaveConfirm(true)} 
+            className="flex-1"
+          >
+            Leave Game
+          </Button>
+        </div>
       </div>
       
+      <ConfirmDialog
+        open={showRestartConfirm}
+        onOpenChange={setShowRestartConfirm}
+        title="Restart Game?"
+        description="Are you sure you want to restart? This will reset the board and all progress will be lost."
+        confirmText="Restart"
+        cancelText="Cancel"
+        onConfirm={() => {
+          setShowRestartConfirm(false);
+          initializeGame();
+        }}
+        variant="default"
+      />
+
       <ConfirmDialog
         open={showLeaveConfirm}
         onOpenChange={setShowLeaveConfirm}

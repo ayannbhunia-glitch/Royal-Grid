@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Player, GameStatus } from './lib/types';
 import { playerColors } from './lib/constants';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/Card';
@@ -11,9 +11,28 @@ interface GameInfoProps {
   winner: Player | null;
   isAiThinking: boolean;
   playerCount: number;
+  gridSize: number;
 }
 
-const GameInfo: React.FC<GameInfoProps> = ({ players, currentPlayerId, gameStatus, turn, winner, isAiThinking, playerCount }) => {
+const GameInfo: React.FC<GameInfoProps> = ({ players, currentPlayerId, gameStatus, turn, winner, isAiThinking, playerCount, gridSize }) => {
+  const [best, setBest] = useState<number | null>(null);
+
+  useEffect(() => {
+    const key = `rg_best_${gridSize}`;
+    const raw = localStorage.getItem(key);
+    setBest(raw ? Number(raw) : null);
+  }, [gridSize]);
+
+  useEffect(() => {
+    if (playerCount !== 1) return;
+    if (gameStatus !== 'gameOver') return;
+    const completed = Math.max(0, turn - 1);
+    const key = `rg_best_${gridSize}`;
+    if (best == null || completed > best) {
+      setBest(completed);
+      localStorage.setItem(key, String(completed));
+    }
+  }, [playerCount, gameStatus, turn, gridSize, best]);
 
   const getStatusMessage = () => {
     if (gameStatus === 'gameOver') {
@@ -51,6 +70,9 @@ const GameInfo: React.FC<GameInfoProps> = ({ players, currentPlayerId, gameStatu
       </CardHeader>
       <CardContent>
         <p className="text-lg font-semibold mb-2 h-7 flex items-center">{getStatusMessage()}</p>
+        {playerCount === 1 && (
+          <div className="text-sm text-slate-300 mb-2">Best: {best ?? '—'}</div>
+        )}
         <div className="space-y-1">
           {players.map(player => (
             <div key={player.id} className="flex items-center justify-between text-sm">
